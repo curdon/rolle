@@ -1,0 +1,89 @@
+---
+title: "Übersichtsplan Rolle"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(sp)
+library(rgdal)
+library(leaflet)
+```
+
+## Daten einlesen
+...
+```{r reader, message=FALSE, warning=FALSE, paged.print=FALSE}
+##gemeindegrenze einlesen
+#...daten von bfs
+rolleBound<-readOGR(layer = "rollebound", dsn = "data/")
+
+#...wurden zuvor via qgis und dem quickosm plugin heruntergeladen und als shp gespeichert
+rolleBuild<-readOGR(layer = "rolleOSM", dsn = "data/")
+
+##gebaeudeinformation als tabelle einlesen
+#...daten sind vom bfs; gws
+load("data/rolleGws.RData")
+```
+
+## Geographische Transformationen
+...
+```{r geotrans}
+#in ch-koordinatensystem konvertieren
+rolleBound<-spTransform(rolleBound,CRSobj = CRS("+init=epsg:21781"))
+rolleBuild<-spTransform(rolleBuild,CRSobj = CRS("+init=epsg:21781"))
+```
+
+## Daten visualisieren
+...
+```{r geoviz}
+#erst alle daten in wgs projezieren
+rolleBound.wgs<-spTransform(rolleBound,CRSobj = CRS("+init=epsg:4326"))
+rolleGws.wgs<-spTransform(rolleGws,CRSobj = CRS("+init=epsg:4326"))
+rolleBuild.wgs<-spTransform(rolleBuild,CRSobj = CRS("+init=epsg:4326"))
+
+qpal <- colorBin("Blues", rolleGws.wgs$G13TOT, 5)
+
+#visualisierung mit leaflet
+m <- leaflet() %>%
+    
+  addTiles(group = "normal") %>%
+  addProviderTiles(providers$Stamen.TonerLite, group = "OSM (b/w)") %>%
+  
+  addPolygons(data=rolleBound.wgs,
+              stroke = TRUE,
+              fillOpacity = 0, 
+              color = "grey",
+              opacity = 1,
+              weight=2,
+              group = "Gemeindegrenze")%>%
+  
+  addPolygons(data=rolleBuild.wgs,
+              stroke = TRUE,
+              fillOpacity = 0.4, 
+              color = "black",
+              opacity = 1,
+              weight=1,
+              fillColor = "grey",
+              group = "Haeuser")%>%
+  
+  addCircles(data=rolleGws.wgs,
+             radius=15,
+             opacity=1,
+             fillOpacity = 1,
+             color = ~qpal(G13TOT),
+             fillColor = ~qpal(G13TOT),
+              group = "GWS (Wohnflaeche Total)")%>%
+  
+  addLayersControl(
+    baseGroups = c("OSM", "OSM (b/w)"),
+    overlayGroups = c("Gemeindegrenze", "Haeuser", "GWS (N Geb. mit Wohnnutz.)"),
+    options = layersControlOptions(collapsed = FALSE)
+  )%>% 
+  
+  addLegend(pal = qpal, values = rolleGws.wgs$G13TOT, opacity = 0.7, title = NULL,
+  position = "bottomright")
+
+#leaflet karte ausführen
+m
+```
+
+
