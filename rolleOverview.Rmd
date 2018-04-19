@@ -7,40 +7,74 @@ output: html_document
 library(sp)
 library(rgdal)
 library(leaflet)
+library(dplyr)
+library(osmdata)
+library(sf)
+library(plyr)
+
 ```
 
 ## Daten einlesen
 ...
 ```{r reader, message=FALSE, warning=FALSE, paged.print=FALSE}
+#workspace leeren
+rm(list=ls())
+
 ##gemeindegrenze einlesen
-#...daten von bfs
-rolleBound<-readOGR(layer = "rollebound", dsn = "data/")
+#...daten von bfs in lokalem data-order gespeichert
+rolle_bound<-readOGR(layer = "rollebound", dsn = "data/")
 
-#...wurden zuvor via qgis und dem quickosm plugin heruntergeladen und als shp gespeichert
-rolleBuild<-readOGR(layer = "rolleOSM", dsn = "data/")
+#...OSM gebaeude ueber die API direkt beziehen
 
-##gebaeudeinformation als tabelle einlesen
-#...daten sind vom bfs; gws
-load("data/rolleGws.RData")
+#gebaeude von mont-sur-rolle
+q1 <- getbb(place_name = "mont-sur-rolle, switzerland", format_out = "polygon") %>%
+  opq() %>%
+  add_osm_feature(key="building")
+
+out <- osmdata_sp(q1)
+m_s_rolle_build <-  out$osm_polygons
+
+dat<-m_s_rolle_build@data
+for(i in 1:ncol(dat)){attr(dat[,i], "ATT") <- NULL}
+m_s_rolle_build@data<-dat
+
+#gebaeude von rolle
+q1 <- getbb(place_name = "rolle, switzerland", format_out = "polygon") %>%
+  opq() %>%
+  add_osm_feature(key="building")
+
+out <- osmdata_sp(q1)
+rolle_build <-  out$osm_polygons
+
+dat<-rolle_build@data
+for(i in 1:ncol(dat)){attr(dat[,i], "ATT") <- NULL}
+rolle_build@data<-dat
+
+#rolle und ms-rolle zusammenfuehren
+rolle_build_dat<-rbind.fill(rolle_build@data,m_s_rolle_build@data)
+
+rolle_build@data<-data.frame(id=1:nrow(rolle_build))
+m_s_rolle_build@data<-data.frame(id=1:nrow(m_s_rolle_build))
+
+rolle_build<-rbind(rolle_build,m_s_rolle_build)
+
+rolle_build@data<-rolle_build_dat
 ```
 
 ## Geographische Transformationen
 ...
 ```{r geotrans}
 #in ch-koordinatensystem konvertieren
-rolleBound<-spTransform(rolleBound,CRSobj = CRS("+init=epsg:21781"))
-rolleBuild<-spTransform(rolleBuild,CRSobj = CRS("+init=epsg:21781"))
+rolle_bound<-spTransform(rolle_bound,CRSobj = CRS("+init=epsg:21781"))
+rolle_build<-spTransform(rolle_build,CRSobj = CRS("+init=epsg:21781"))
 ```
 
 ## Daten visualisieren
 ...
 ```{r geoviz}
-#erst alle daten in wgs projezieren
-rolleBound.wgs<-spTransform(rolleBound,CRSobj = CRS("+init=epsg:4326"))
-rolleGws.wgs<-spTransform(rolleGws,CRSobj = CRS("+init=epsg:4326"))
-rolleBuild.wgs<-spTransform(rolleBuild,CRSobj = CRS("+init=epsg:4326"))
-
-qpal <- colorBin("Blues", rolleGws.wgs$G13TOT, 5)
+#erst alle daten in wgs projezieren fuer leaflet projektion
+rolle_bound.wgs<-spTransform(rolle_bound,CRSobj = CRS("+init=epsg:4326"))
+rolle_build.wgs<-spTransform(rolle_build,CRSobj = CRS("+init=epsg:4326"))
 
 #visualisierung mit leaflet
 m <- leaflet() %>%
@@ -48,7 +82,7 @@ m <- leaflet() %>%
   addTiles(group = "normal") %>%
   addProviderTiles(providers$Stamen.TonerLite, group = "OSM (b/w)") %>%
   
-  addPolygons(data=rolleBound.wgs,
+  addPolygons(data=rolle_bound.wgs,
               stroke = TRUE,
               fillOpacity = 0, 
               color = "grey",
@@ -56,7 +90,7 @@ m <- leaflet() %>%
               weight=2,
               group = "Gemeindegrenze")%>%
   
-  addPolygons(data=rolleBuild.wgs,
+  addPolygons(data=rolle_build.wgs,
               stroke = TRUE,
               fillOpacity = 0.4, 
               color = "black",
@@ -65,22 +99,11 @@ m <- leaflet() %>%
               fillColor = "grey",
               group = "Haeuser")%>%
   
-  addCircles(data=rolleGws.wgs,
-             radius=15,
-             opacity=1,
-             fillOpacity = 1,
-             color = ~qpal(G13TOT),
-             fillColor = ~qpal(G13TOT),
-              group = "GWS (Wohnflaeche Total)")%>%
-  
   addLayersControl(
     baseGroups = c("OSM", "OSM (b/w)"),
-    overlayGroups = c("Gemeindegrenze", "Haeuser", "GWS (N Geb. mit Wohnnutz.)"),
+    overlayGroups = c("Gemeindegrenze", "Haeuser"),
     options = layersControlOptions(collapsed = FALSE)
-  )%>% 
-  
-  addLegend(pal = qpal, values = rolleGws.wgs$G13TOT, opacity = 0.7, title = NULL,
-  position = "bottomright")
+  )
 
 #leaflet karte ausführen
 m
